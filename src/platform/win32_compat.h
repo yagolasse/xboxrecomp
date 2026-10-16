@@ -164,6 +164,7 @@ DWORD  ResumeThread(HANDLE h);
 DWORD  SuspendThread(HANDLE h);
 BOOL   TerminateThread(HANDLE h, DWORD exitCode);
 DWORD  GetCurrentThreadId(void);
+DWORD  GetThreadId(HANDLE h);
 HANDLE GetCurrentThread(void);
 HANDLE GetCurrentProcess(void);
 DWORD  GetCurrentProcessId(void);

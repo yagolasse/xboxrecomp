@@ -323,6 +323,16 @@ DWORD GetCurrentThreadId(void)
     return t_tid;
 }
 
+/* The id CreateThread reported for a thread handle; 0 for anything else, as on
+ * Windows. The main thread has no handle object, only its pseudo handle. */
+DWORD GetThreadId(HANDLE h)
+{
+    w32_object *o;
+    if (h == PSEUDO_CURRENT_THREAD) return GetCurrentThreadId();
+    o = (w32_object *)h;
+    return (o && o->kind == K_THREAD) ? o->tid : 0;
+}
+
 DWORD GetCurrentProcessId(void) { return (DWORD)getpid(); }
 HANDLE GetCurrentThread(void)   { return t_self_obj ? (HANDLE)t_self_obj : PSEUDO_CURRENT_THREAD; }
 HANDLE GetCurrentProcess(void)  { return PSEUDO_CURRENT_PROCESS; }
