@@ -221,6 +221,12 @@ void xa2_expect_drain(void)
     g_dry = 1;
 }
 
+void xa2_set_paused(int on)
+{
+    if (!g_initialized || !g_dev) return;
+    SDL_PauseAudioDevice(g_dev, on ? 1 : 0);
+}
+
 unsigned xa2_underruns(void)
 {
     return g_underruns;

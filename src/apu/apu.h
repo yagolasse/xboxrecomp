@@ -31,6 +31,14 @@ void mcpx_apu_mmio_write(MCPXAPUState *d, uint64_t addr, uint64_t val, unsigned 
  * set, non-empty and not starting with '0'. */
 int apu_env_on(const char *name);
 
+/* Host pause (a title's in-game menu freezing the game): on = no more APU
+ * frames (voices, DSP, interrupts and the sample counter stand still, so the
+ * title sees no time pass in its sound) and the audio device stops where it
+ * is; off = both resume. The DSP doorbell is still acked meanwhile, so a
+ * DirectSound call made while paused does not hang. Any thread, any time
+ * (before init it only sets the flag). */
+void mcpx_apu_set_host_paused(int on);
+
 /* Play a 440Hz test tone through the APU pipeline to verify audio output.
  * Directly programs a voice without going through DirectSound. */
 void mcpx_apu_play_test_tone(MCPXAPUState *d);

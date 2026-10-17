@@ -270,6 +270,15 @@ void xa2_expect_drain(void)
     g_xa2_dry = 1;
 }
 
+void xa2_set_paused(int on)
+{
+    if (!g_xa2_initialized || !g_xa2_source) return;
+    if (on)
+        IXAudio2SourceVoice_Stop(g_xa2_source, 0, XAUDIO2_COMMIT_NOW);
+    else
+        IXAudio2SourceVoice_Start(g_xa2_source, 0, XAUDIO2_COMMIT_NOW);
+}
+
 unsigned xa2_underruns(void)
 {
     return g_xa2_underruns;

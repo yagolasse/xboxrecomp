@@ -34,6 +34,9 @@ uint8_t *g_apu_ram_ptr = NULL;
 
 MCPXAPUState *g_state = NULL;
 
+/* mcpx_apu_set_host_paused */
+static int g_host_paused;
+
 /* Forward declarations for software mixer */
 static void mixer_init(void);
 static void mixer_render(int16_t frame_buf[][2], int num_samples);
@@ -978,7 +981,7 @@ static void throttle(MCPXAPUState *d)
 {
     int64_t start_us = qemu_clock_get_us(QEMU_CLOCK_REALTIME);
 
-    while (!d->pause_requested) {
+    while (!d->pause_requested && !qatomic_read(&g_host_paused)) {
         int64_t wait_us = mcpx_apu_pace_step(
             d, qemu_clock_get_us(QEMU_CLOCK_REALTIME));
         if (wait_us <= 0)
@@ -1064,6 +1067,14 @@ static void *mcpx_apu_frame_thread(void *arg)
     qemu_mutex_lock(&d->lock);
 
     while (!qatomic_read(&d->exiting)) {
+        if (qatomic_read(&g_host_paused)) {
+            /* No frames, so nothing the title can see moves; the doorbell
+             * is still acked (cheap, stateless) in case it posts a command. */
+            hs_rebase();
+            mcpx_apu_dsp_ack_poll(d);
+            qemu_cond_timedwait(&d->cond, &d->lock, 1);
+            continue;
+        }
         if (d->pause_requested && !g_test_tone.active && !g_mixer_active_count) {
             d->is_idle = true;
             if (xa2_is_active())
@@ -1079,6 +1090,8 @@ static void *mcpx_apu_frame_thread(void *arg)
          * need continuous frame delivery regardless of APU register state.
          * The VP/DSP pipeline (se_frame) only runs when registers allow it. */
         throttle(d);
+        if (qatomic_read(&g_host_paused))
+            continue;
         int div0 = d->ep_frame_div;
 
         /* The doorbell ack stands in for the GP DSP, which on hardware runs
@@ -1201,6 +1214,30 @@ static void mcpx_apu_wait_for_idle(MCPXAPUState *d)
     while (!d->is_idle) {
         qemu_cond_wait(&d->idle_cond, &d->lock);
     }
+}
+
+void mcpx_apu_set_host_paused(int on)
+{
+    MCPXAPUState *d = g_state;
+
+    on = on ? 1 : 0;
+    if (!d) {
+        qatomic_set(&g_host_paused, on);
+        return;
+    }
+    qemu_mutex_lock(&d->lock);
+    if (qatomic_read(&g_host_paused) != on) {
+        qatomic_set(&g_host_paused, on);
+        /* The device queue stood still with the pause: without this the
+         * first pacing step after it would read the stale drain time as a
+         * stalled device and drop periods. */
+        d->pace_drain_us = 0;
+        if (xa2_is_active())
+            xa2_set_paused(on);
+        fprintf(stderr, "[APU] host %s\n", on ? "paused" : "resumed");
+    }
+    qemu_cond_broadcast(&d->cond);
+    qemu_mutex_unlock(&d->lock);
 }
 
 static void mcpx_apu_resume(MCPXAPUState *d)
