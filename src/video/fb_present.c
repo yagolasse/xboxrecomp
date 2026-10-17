@@ -24,7 +24,7 @@
  */
 #include <stdint.h>
 
-#if defined(_WIN32)
+#if defined(_WIN32) && !defined(XBOX_SDL_WINDOW)
 #include <windows.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -188,6 +188,12 @@ void xbox_FramebufferWindowPresentPixels(const uint32_t *xrgb, uint32_t width,
 void *xbox_FramebufferWindowHwnd(void)
 {
     return (void *)s_hwnd;
+}
+
+/* The GDI window needs no notice: GpuPresent(1) stops its blit. */
+void xbox_FramebufferWindowExternalPresent(int on)
+{
+    (void)on;
 }
 
 void xbox_FramebufferWindowGpuPresent(int on)
@@ -686,4 +692,4 @@ void xbox_FramebufferWindowStart(void)
         InterlockedExchange(&s_fb_running, 0);
 }
 
-#endif /* _WIN32: POSIX hosts get the SDL2 window in fb_present_sdl.c */
+#endif /* _WIN32 && !XBOX_SDL_WINDOW: else the SDL2 window in fb_present_sdl.c */

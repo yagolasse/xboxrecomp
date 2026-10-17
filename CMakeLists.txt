@@ -24,6 +24,13 @@ add_compile_definitions(
 
 # Option to build examples
 
+# The framebuffer window and its keys through SDL2 on Windows too
+# (src/video/fb_present_sdl.c, src/input/keyboard_sdl.c) instead of the GDI
+# window; POSIX hosts always use SDL2. A parent project that builds SDL2
+# itself defines the SDL2::SDL2 target before add_subdirectory; otherwise
+# find_package finds an installed one.
+option(XBOX_SDL_WINDOW "Windows: SDL2 framebuffer window instead of GDI" OFF)
+
 # ── Runtime Libraries ─────────────────────────────────────────
 
 # Platform: Win32/NT type vocabulary + POSIX implementation of generic

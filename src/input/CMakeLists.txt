@@ -11,8 +11,11 @@ if(WIN32)
     # Mouse+keyboard pad (RECOMP_MKB) reads Win32 raw input.
     target_sources(xbox_input PRIVATE mkb_input.c)
     target_link_libraries(xbox_input PUBLIC platform xinput)
-else()
-    find_package(SDL2 REQUIRED)
+endif()
+if(NOT WIN32 OR XBOX_SDL_WINDOW)
+    if(NOT TARGET SDL2::SDL2)
+        find_package(SDL2 REQUIRED)
+    endif()
     # The SDL window's key and focus events into that table.
     target_sources(xbox_input PRIVATE keyboard_sdl.c)
     target_link_libraries(xbox_input PUBLIC platform SDL2::SDL2)

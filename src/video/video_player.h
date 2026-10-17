@@ -74,6 +74,10 @@ void xbox_FramebufferWindowPresentPixels(const uint32_t *xrgb, uint32_t width,
  * ClientSize is the client area in physical pixels as of the last WM_SIZE
  * (the window is per-monitor DPI aware; the rest of the process is not, so
  * GetClientRect from another thread may answer in scaled units); 0 = none. */
+/* Called before the window opens by such a renderer: the SDL window then
+ * makes no SDL_Renderer of its own (its swap chain would fight the GL
+ * context) and drops CPU frames; the GDI window ignores it. */
+void xbox_FramebufferWindowExternalPresent(int on);
 void *xbox_FramebufferWindowHwnd(void);
 void xbox_FramebufferWindowGpuPresent(int on);
 int  xbox_FramebufferWindowClientSize(uint32_t *width, uint32_t *height);
