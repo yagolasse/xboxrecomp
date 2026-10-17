@@ -22,7 +22,9 @@
  *
  * F9 toggles mouse/keyboard capture at runtime. Capture is only
  * applied while the recompiled game's process has the foreground
- * window, so the mouse keeps working normally in other apps.
+ * window (GDI build) or the SDL window has the keyboard focus (SDL
+ * build: relative mouse mode), so the mouse keeps working normally in
+ * other apps.
  */
 
 #ifndef XBOXRECOMP_MKB_INPUT_H
@@ -50,6 +52,25 @@ int mkb_enabled(void);
  * report a connected controller), 0 otherwise.
  */
 int mkb_merge(DWORD dwPort, XBOX_INPUT_STATE *pState);
+
+/*
+ * An overlay (the settings menu) owns the mouse and keys while open:
+ * capture is released and the virtual pad reads at rest. Any thread.
+ */
+void mkb_set_overlay(int open);
+
+#if !defined(_WIN32) || defined(XBOX_SDL_WINDOW)
+/*
+ * SDL build: the window's thread (src/video/fb_present_sdl.c) hands every
+ * event here, and returns early when this returns nonzero (the event was
+ * the pad's: captured mouse motion, buttons, wheel, F9). Keys are read and
+ * passed on. mkb_sdl_tick runs once per loop pass, after the events, and
+ * turns SDL's relative mouse mode on or off; both only on that thread.
+ */
+union SDL_Event;
+int  mkb_sdl_event(const union SDL_Event *ev);
+void mkb_sdl_tick(void);
+#endif
 
 #ifdef __cplusplus
 }

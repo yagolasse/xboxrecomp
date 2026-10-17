@@ -3,13 +3,13 @@
 add_library(xbox_input STATIC
     xinput_device.c
     keyboard.c          # the key table and the one key map (every host)
+    mkb_input.c         # mouse+keyboard pad (RECOMP_MKB): Win32 raw input on
+                        # the GDI build, the SDL window's events otherwise
 )
 
 target_include_directories(xbox_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 
 if(WIN32)
-    # Mouse+keyboard pad (RECOMP_MKB) reads Win32 raw input.
-    target_sources(xbox_input PRIVATE mkb_input.c)
     target_link_libraries(xbox_input PUBLIC platform)
     if(NOT XBOX_SDL_WINDOW)
         target_link_libraries(xbox_input PUBLIC xinput)

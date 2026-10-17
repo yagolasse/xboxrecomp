@@ -48,6 +48,13 @@
  * Alt+Enter toggles borderless fullscreen (the game does not see it as
  * Start); RECOMP_FB_FULLSCREEN=1 starts fullscreen.
  *
+ * Input events go to the title's event hook first (an overlay menu), then
+ * to the mouse+keyboard pad (mkb_input.c, RECOMP_MKB: captured mouse
+ * events and F9 are its own), then to the key table (keyboard_sdl.c).
+ * After each batch the mouse pad turns SDL's relative mouse mode on or
+ * off, which has to happen on this thread (SDL's Win32 cursor clip, grab
+ * and capture belong to the thread that owns the window).
+ *
  * Knobs: RECOMP_PRESENT_VSYNC=0 presents without waiting for the display;
  * RECOMP_WINDOW_SCALE=<n> sizes the window (default 2 on POSIX; 1 on
  * Windows, where the size also follows the monitor's DPI, as the GDI
@@ -73,6 +80,7 @@
 
 #include "video_player.h"
 #include "keyboard_sdl.h"     /* src/input: keys into the pad stand-in */
+#include "mkb_input.h"        /* src/input: the mouse+keyboard pad */
 
 extern ptrdiff_t xbox_GetMemoryOffset(void);
 #if !defined(_WIN32)
@@ -393,6 +401,10 @@ static int window_open(void)
 #endif
     SDL_SetMainReady();
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "nearest");
+    /* The mouse pad counts device units (RECOMP_MKB_FULL); without this the
+     * renderer divides relative motion by its 640x480 logical scale. Read
+     * at SDL_CreateRenderer; no effect with an external present. */
+    SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SCALING, "0");
     if (SDL_Init(FBWIN_SDL_SUBSYSTEMS) != 0) {
         fprintf(stderr, "  [FBWIN] SDL video unavailable (%s); running headless\n",
                 SDL_GetError());
@@ -496,10 +508,12 @@ static int window_loop(void)
                 }
                 /* Keys for the pad stand-in, and the window events that
                  * release them; it only reads the event. A title's hook
-                 * (an overlay menu) sees it first and may keep it. */
+                 * (an overlay menu) sees it first and may keep it; then
+                 * the mouse pad, which keeps captured mouse events and F9
+                 * (neither means anything to the key table). */
                 {
                     xbox_fb_event_hook_fn hook = s_event_hook;
-                    if (!hook || !hook(&ev))
+                    if ((!hook || !hook(&ev)) && !mkb_sdl_event(&ev))
                         xbox_InputSdlEvent(&ev);
                 }
                 if (ev.type == SDL_QUIT)
@@ -532,6 +546,8 @@ static int window_loop(void)
                 }
             } while (SDL_PollEvent(&ev));
         }
+        /* Relative mouse mode follows focus, F9 and the overlay. */
+        mkb_sdl_tick();
 
         if (s_ren) {
             SDL_AtomicLock(&s_lock);

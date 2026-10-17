@@ -306,8 +306,8 @@ void xbox_InputInit(void)
     input_up();
 }
 
-/* No pad on this port: on port 0 the keyboard (and on Windows the
- * mouse+keyboard pad) stand in, so the game is playable with none. */
+/* No pad on this port: on port 0 the keyboard (and the mouse+keyboard
+ * pad) stand in, so the game is playable with none. */
 static DWORD no_pad(DWORD dwPort, XBOX_INPUT_STATE *pState)
 {
     g_controller_connected[dwPort] = FALSE;
@@ -315,15 +315,10 @@ static DWORD no_pad(DWORD dwPort, XBOX_INPUT_STATE *pState)
         int kb;
         memset(pState, 0, sizeof *pState);
         kb = xbox_InputKeyboardPoll(pState);
-#if defined(_WIN32)
         if (mkb_merge(dwPort, pState))
             g_controller_connected[dwPort] = TRUE;
         if (kb || mkb_enabled())
             return ERROR_SUCCESS;
-#else
-        if (kb)
-            return ERROR_SUCCESS;
-#endif
     }
     return ERROR_DEVICE_NOT_CONNECTED;
 }
@@ -411,11 +406,9 @@ static DWORD get_state(DWORD dwPort, XBOX_INPUT_STATE *pState)
 
     if (dwPort == 0)
         keyboard_merge(pState);
-#if defined(_WIN32)
     /* Mouse+keyboard merges on top of a real pad too, as with XInput. */
     if (dwPort == 0)
         mkb_merge(dwPort, pState);
-#endif
     return ERROR_SUCCESS;
 }
 
