@@ -33,11 +33,12 @@
  * 4 = X8R8G8B8. Before the first flip the window reads the AvSetDisplayMode
  * surface directly, as the GDI window does, for a title that never flips.
  *
- * A renderer that draws into the window itself (a GL context on its HWND)
- * calls xbox_FramebufferWindowExternalPresent(1) before the window opens:
- * the window then gets no SDL_Renderer (whose swap chain would fight the
- * GL context for it) and shows nothing of its own; Hwnd / ClientSize give
- * that renderer what it needs, as the GDI window does.
+ * A renderer that draws into the window itself (a GL context on it) calls
+ * xbox_FramebufferWindowExternalPresent(1) before the window opens: the
+ * window then gets no SDL_Renderer (whose swap chain would fight the GL
+ * context for it), is made with SDL_WINDOW_OPENGL (so SDL_GL_CreateContext
+ * works on it) and shows nothing of its own; Sdl (the SDL_Window) or Hwnd,
+ * and ClientSize give that renderer what it needs, as the GDI window does.
  *
  * Closing the window ends the process: lifted code cannot be stopped
  * mid-flight. On POSIX atexit handlers still run; on Windows the process is
@@ -112,6 +113,7 @@ static volatile uint32_t s_fb_va, s_fb_pitch; /* AvSetDisplayMode surface */
 /* External present (a renderer drawing into the window itself). */
 static int             s_external;           /* set before the window opens */
 static void *volatile  s_hwnd;               /* NULL until the window exists */
+static SDL_Window *volatile s_sdl_win;       /* same, for the external renderer */
 static SDL_atomic_t    s_client_wh;          /* w << 16 | h, physical px; 0 = none */
 
 /* Counted at the flip, read once a second for the title bar. */
@@ -238,6 +240,8 @@ void xbox_FramebufferWindowExternalPresent(int on)
 }
 
 void *xbox_FramebufferWindowHwnd(void) { return s_hwnd; }
+
+void *xbox_FramebufferWindowSdl(void) { return s_sdl_win; }
 
 /* Nothing to stop: in external mode the window draws nothing of its own. */
 void xbox_FramebufferWindowGpuPresent(int on) { (void)on; }
@@ -388,7 +392,8 @@ static int window_open(void)
     s_win = SDL_CreateWindow(s_title, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                              (int)FB_W * scale, (int)FB_H * scale,
                              SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI
-                             | SDL_WINDOW_HIDDEN);
+                             | SDL_WINDOW_HIDDEN
+                             | (s_external ? SDL_WINDOW_OPENGL : 0));
     s_ren = s_win && !s_external
           ? SDL_CreateRenderer(s_win, -1, vsync ? SDL_RENDERER_PRESENTVSYNC : 0)
           : NULL;
@@ -432,6 +437,8 @@ static int window_open(void)
     if (env_on("RECOMP_FB_FULLSCREEN"))
         set_fullscreen(1);
     update_client_size();
+    if (s_external)
+        s_sdl_win = s_win;
 
     {
         SDL_RendererInfo ri;
@@ -489,6 +496,13 @@ static int window_loop(void)
                     SDL_AtomicSet(&s_wake_pending, 0);
                 else if (ev.type == SDL_WINDOWEVENT) {
                     switch (ev.window.event) {
+                    case SDL_WINDOWEVENT_CLOSE:
+                        /* SDL_QUIT comes only when the last SDL window
+                         * closes; an external renderer's hidden context
+                         * windows (SDL GL) keep it from coming. */
+                        if (ev.window.windowID == SDL_GetWindowID(s_win))
+                            quit = 1;
+                        break;
                     case SDL_WINDOWEVENT_EXPOSED:
                         dirty = 1;
                         break;

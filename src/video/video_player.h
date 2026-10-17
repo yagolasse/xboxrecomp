@@ -79,6 +79,9 @@ void xbox_FramebufferWindowPresentPixels(const uint32_t *xrgb, uint32_t width,
  * context) and drops CPU frames; the GDI window ignores it. */
 void xbox_FramebufferWindowExternalPresent(int on);
 void *xbox_FramebufferWindowHwnd(void);
+/* SDL window only (fb_present_sdl.c): the SDL_Window * once the window is up
+ * in external-present mode (made with SDL_WINDOW_OPENGL), else NULL. */
+void *xbox_FramebufferWindowSdl(void);
 void xbox_FramebufferWindowGpuPresent(int on);
 int  xbox_FramebufferWindowClientSize(uint32_t *width, uint32_t *height);
 int  xbox_FramebufferDumpBmp(const char *path);
