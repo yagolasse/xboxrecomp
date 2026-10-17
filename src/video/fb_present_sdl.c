@@ -92,7 +92,9 @@ struct fb_slot {
 };
 
 /* What the window takes from SDL, and gives back on every way out. On
- * Windows the pads are still XInput's (src/input), so no game controllers. */
+ * Windows the input layer brings up SDL's game controllers itself
+ * (xbox_InputInit, src/input) and updates them on its own thread, so the
+ * window takes none. */
 #if defined(_WIN32)
 #define FBWIN_SDL_SUBSYSTEMS (SDL_INIT_VIDEO | SDL_INIT_EVENTS)
 #else

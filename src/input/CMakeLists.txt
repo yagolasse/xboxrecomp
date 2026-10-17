@@ -10,15 +10,22 @@ target_include_directories(xbox_input PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 if(WIN32)
     # Mouse+keyboard pad (RECOMP_MKB) reads Win32 raw input.
     target_sources(xbox_input PRIVATE mkb_input.c)
-    target_link_libraries(xbox_input PUBLIC platform xinput)
+    target_link_libraries(xbox_input PUBLIC platform)
+    if(NOT XBOX_SDL_WINDOW)
+        target_link_libraries(xbox_input PUBLIC xinput)
+    endif()
 endif()
 if(NOT WIN32 OR XBOX_SDL_WINDOW)
     if(NOT TARGET SDL2::SDL2)
         find_package(SDL2 REQUIRED)
     endif()
-    # The SDL window's key and focus events into that table.
+    # The SDL window's key and focus events into that table, and the pads
+    # through SDL's game controllers (xinput_device.c), on Windows too.
     target_sources(xbox_input PRIVATE keyboard_sdl.c)
     target_link_libraries(xbox_input PUBLIC platform SDL2::SDL2)
+    if(WIN32)
+        target_compile_definitions(xbox_input PRIVATE XBOX_SDL_WINDOW=1)
+    endif()
 endif()
 
 if(MSVC)

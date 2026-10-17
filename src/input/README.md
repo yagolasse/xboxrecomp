@@ -2,6 +2,17 @@
 
 Maps the Xbox controller API to Windows XInput. The original Xbox used `XInputGetState` with a slightly different structure layout than the XInput API on Windows. This layer translates between them.
 
+On macOS and Linux, and on Windows when built with `XBOX_SDL_WINDOW`, the pads
+come from SDL2's game controller API instead (same button map; any controller
+SDL knows, not only XInput ones). Pads are given ports in the order SDL lists
+them and are looked for again once a second while a port is empty (plug in /
+pull out while running). Call `xbox_InputInit()` on the main thread before
+other threads use SDL; otherwise the first poll brings SDL's controllers up.
+On Windows the pads are read also while the window is in the background (as
+XInput), and SDL watches for new devices on a thread of its own. Log lines:
+`[PAD] port N: <name> (SDL game controller)`, `[PAD] port N: disconnected`,
+and `[PAD] port N: Back+Start held` when both are pressed together on a pad.
+
 ## Files
 
 | File | LOC | Purpose |
@@ -9,7 +20,7 @@ Maps the Xbox controller API to Windows XInput. The original Xbox used `XInputGe
 | `xinput_xbox.h` | 189 | Public header — types, button constants, function prototypes |
 | `xinput_device.c` | 23 | Implementation (maps Xbox calls to Windows XInput) |
 | `keyboard.c` | | The key table and the one key map, every host |
-| `keyboard_sdl.c` | | The SDL window's key and focus events into that table (POSIX) |
+| `keyboard_sdl.c` | | The SDL window's key and focus events into that table (POSIX, `XBOX_SDL_WINDOW`) |
 
 ## Quick Start
 
