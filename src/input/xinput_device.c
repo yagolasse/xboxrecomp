@@ -328,7 +328,7 @@ static DWORD no_pad(DWORD dwPort, XBOX_INPUT_STATE *pState)
     return ERROR_DEVICE_NOT_CONNECTED;
 }
 
-DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
+static DWORD get_state(DWORD dwPort, XBOX_INPUT_STATE *pState)
 {
     SDL_GameController *c;
 
@@ -417,6 +417,23 @@ DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
         mkb_merge(dwPort, pState);
 #endif
     return ERROR_SUCCESS;
+}
+
+static xbox_input_filter_fn volatile g_filter;
+
+void xbox_InputSetFilter(xbox_input_filter_fn fn)
+{
+    g_filter = fn;
+}
+
+DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState)
+{
+    DWORD rc = get_state(dwPort, pState);
+    xbox_input_filter_fn fn = g_filter;
+
+    if (rc == ERROR_SUCCESS && fn)
+        fn(dwPort, pState);
+    return rc;
 }
 
 DWORD xbox_InputSetState(DWORD dwPort, const XBOX_VIBRATION *pVibration)

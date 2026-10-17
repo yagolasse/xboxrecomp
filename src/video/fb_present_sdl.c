@@ -245,6 +245,13 @@ void *xbox_FramebufferWindowHwnd(void) { return s_hwnd; }
 
 void *xbox_FramebufferWindowSdl(void) { return s_sdl_win; }
 
+static xbox_fb_event_hook_fn volatile s_event_hook;
+
+void xbox_FramebufferWindowSetEventHook(xbox_fb_event_hook_fn hook)
+{
+    s_event_hook = hook;
+}
+
 /* Nothing to stop: in external mode the window draws nothing of its own. */
 void xbox_FramebufferWindowGpuPresent(int on) { (void)on; }
 
@@ -488,8 +495,13 @@ static int window_loop(void)
                     continue;
                 }
                 /* Keys for the pad stand-in, and the window events that
-                 * release them; it only reads the event. */
-                xbox_InputSdlEvent(&ev);
+                 * release them; it only reads the event. A title's hook
+                 * (an overlay menu) sees it first and may keep it. */
+                {
+                    xbox_fb_event_hook_fn hook = s_event_hook;
+                    if (!hook || !hook(&ev))
+                        xbox_InputSdlEvent(&ev);
+                }
                 if (ev.type == SDL_QUIT)
                     quit = 1;
                 else if (ev.type == s_guest_done_event)

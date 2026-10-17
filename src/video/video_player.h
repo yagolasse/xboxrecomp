@@ -82,6 +82,15 @@ void *xbox_FramebufferWindowHwnd(void);
 /* SDL window only (fb_present_sdl.c): the SDL_Window * once the window is up
  * in external-present mode (made with SDL_WINDOW_OPENGL), else NULL. */
 void *xbox_FramebufferWindowSdl(void);
+/* SDL window only: every SDL event the window loop takes is handed to hook
+ * first, on the window's thread (on Windows its own "fb window" thread, so
+ * a hook that draws elsewhere queues the event across). The argument is the
+ * SDL_Event *. A nonzero return keeps the event from the keyboard stand-in
+ * (keyboard_sdl.c); the window itself still acts on quit, close and size
+ * events, and Alt+Enter is taken before the hook. One hook; NULL removes it;
+ * set it before or after the window opens. */
+typedef int (*xbox_fb_event_hook_fn)(const void *sdl_event);
+void xbox_FramebufferWindowSetEventHook(xbox_fb_event_hook_fn hook);
 void xbox_FramebufferWindowGpuPresent(int on);
 int  xbox_FramebufferWindowClientSize(uint32_t *width, uint32_t *height);
 int  xbox_FramebufferDumpBmp(const char *path);

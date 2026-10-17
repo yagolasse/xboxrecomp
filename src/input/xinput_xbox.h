@@ -95,6 +95,16 @@ void xbox_InputInit(void);
 DWORD xbox_InputGetState(DWORD dwPort, XBOX_INPUT_STATE *pState);
 
 /**
+ * SDL game-controller backend only (XBOX_SDL_WINDOW or POSIX): fn sees each
+ * state xbox_InputGetState is about to return (pad, keyboard and mouse
+ * merged), on the polling thread, and may change it (a title's overlay menu
+ * reads its combo there and hands the game a neutral pad while open). One
+ * filter; NULL removes it.
+ */
+typedef void (*xbox_input_filter_fn)(DWORD dwPort, XBOX_INPUT_STATE *pState);
+void xbox_InputSetFilter(xbox_input_filter_fn fn);
+
+/**
  * Set controller vibration.
  */
 DWORD xbox_InputSetState(DWORD dwPort, const XBOX_VIBRATION *pVibration);
