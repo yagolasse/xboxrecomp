@@ -28,16 +28,38 @@
 #ifndef MMIO_DECODE_H
 #define MMIO_DECODE_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #if defined(_WIN32)
 #include <windows.h>
+#define MMIO_DECODE_X64 1
 
+/* The thread state the decoder edits: the VEH's CONTEXT. */
+typedef CONTEXT mmio_ctx_t;
+#elif defined(__x86_64__) && defined(__linux__)
+#include <ucontext.h>
+#define MMIO_DECODE_X64 1
+#define MMIO_DECODE_X64_POSIX 1
+
+/* A SIGSEGV handler's ucontext keeps the registers in gregs[], in the
+ * kernel's sigcontext order, not CONTEXT's. The decoder works on this
+ * CONTEXT-shaped copy (same field names, so one body serves both hosts);
+ * mmio_emulate_ucontext at the end copies it in and back. */
+typedef struct mmio_ctx_t {
+    uint64_t Rax, Rcx, Rdx, Rbx, Rsp, Rbp, Rsi, Rdi;
+    uint64_t R8, R9, R10, R11, R12, R13, R14, R15;
+    uint64_t Rip;
+    uint32_t EFlags;
+} mmio_ctx_t;
+#endif
+
+#if defined(MMIO_DECODE_X64)
 /* Service one register access. dev is passed straight back to the callbacks. */
 typedef uint64_t (*mmio_read_fn)(void *dev, uint32_t off, int size);
 typedef void     (*mmio_write_fn)(void *dev, uint32_t off, uint64_t val, int size);
 
-static inline uint64_t *mmio_ctx_reg(PCONTEXT c, int reg)
+static inline uint64_t *mmio_ctx_reg(mmio_ctx_t *c, int reg)
 {
     switch (reg & 0xF) {
     case 0:  return (uint64_t *)&c->Rax;   case 1:  return (uint64_t *)&c->Rcx;
@@ -80,7 +102,7 @@ static inline uint64_t mmio_size_mask(int size)
 /* a OP b at the given width, with the flags a following jcc reads: ZF, SF, CF
  * and OF. PF and AF are left alone; nothing branches on them after a register
  * read. The logical operations clear CF and OF, as the hardware does. */
-static inline uint64_t mmio_alu(PCONTEXT ctx, int op, uint64_t a, uint64_t b,
+static inline uint64_t mmio_alu(mmio_ctx_t *ctx, int op, uint64_t a, uint64_t b,
                                 int size)
 {
     uint64_t m = mmio_size_mask(size), sign = 1ULL << (size * 8 - 1), r;
@@ -112,7 +134,7 @@ static inline uint64_t mmio_alu(PCONTEXT ctx, int op, uint64_t a, uint64_t b,
 
 /* A general register at an operand width. Without a REX prefix, byte
  * registers 4-7 are AH, CH, DH and BH -- bits 15:8 of registers 0-3. */
-static inline uint64_t mmio_get_reg(PCONTEXT c, int reg, int size, int has_rex)
+static inline uint64_t mmio_get_reg(mmio_ctx_t *c, int reg, int size, int has_rex)
 {
     if (size == 1 && !has_rex && reg >= 4 && reg < 8)
         return (*mmio_ctx_reg(c, reg - 4) >> 8) & 0xFF;
@@ -121,7 +143,7 @@ static inline uint64_t mmio_get_reg(PCONTEXT c, int reg, int size, int has_rex)
 
 /* Write with x86-64 width rules: a 32-bit write zeroes bits 63:32, an 8- or
  * 16-bit write merges into what was there. */
-static inline void mmio_set_reg(PCONTEXT c, int reg, uint64_t v, int size,
+static inline void mmio_set_reg(mmio_ctx_t *c, int reg, uint64_t v, int size,
                                 int has_rex)
 {
     uint64_t *d;
@@ -159,7 +181,7 @@ static inline uint64_t mmio_imm(const uint8_t *p, int size, int *len)
  * once; a memory-destination form reads, then writes (CMP and TEST only
  * read). ADC/SBB, the rest of F6/F7 (NOT/NEG/MUL/DIV), string moves and
  * anything else return 0. */
-static inline int mmio_emulate(PCONTEXT ctx, uint32_t off, void *dev,
+static inline int mmio_emulate(mmio_ctx_t *ctx, uint32_t off, void *dev,
                                mmio_read_fn rd, mmio_write_fn wr)
 {
     const uint8_t *ip = (const uint8_t *)ctx->Rip;
@@ -290,5 +312,70 @@ static inline int mmio_emulate(PCONTEXT ctx, uint32_t off, void *dev,
     }
 }
 
-#endif /* _WIN32 */
+#if defined(MMIO_DECODE_X64_POSIX)
+/* The gregs[] slots, as <sys/ucontext.h> names them under _GNU_SOURCE (REG_RAX
+ * and friends; the indices are the kernel ABI). Spelled out here so a file
+ * that includes <ucontext.h> without _GNU_SOURCE still builds. */
+enum { MMIO_GREG_R8 = 0, MMIO_GREG_R9, MMIO_GREG_R10, MMIO_GREG_R11,
+       MMIO_GREG_R12, MMIO_GREG_R13, MMIO_GREG_R14, MMIO_GREG_R15,
+       MMIO_GREG_RDI, MMIO_GREG_RSI, MMIO_GREG_RBP, MMIO_GREG_RBX,
+       MMIO_GREG_RDX, MMIO_GREG_RAX, MMIO_GREG_RCX, MMIO_GREG_RSP,
+       MMIO_GREG_RIP, MMIO_GREG_EFL };
+#if defined(REG_RAX)
+_Static_assert((int)REG_RAX == (int)MMIO_GREG_RAX
+               && (int)REG_RIP == (int)MMIO_GREG_RIP
+               && (int)REG_EFL == (int)MMIO_GREG_EFL
+               && (int)REG_R8 == (int)MMIO_GREG_R8, "gregs[] layout");
+#endif
+
+/* mmio_emulate from a SIGSEGV/SIGBUS handler (SA_SIGINFO): ucv is its
+ * ucontext_t *. The registers go through a CONTEXT-shaped copy; on success
+ * the copy is written back, and returning from the handler resumes the thread
+ * past the instruction with the device's value in place. */
+static inline int mmio_emulate_ucontext(void *ucv, uint32_t off, void *dev,
+                                        mmio_read_fn rd, mmio_write_fn wr)
+{
+    greg_t *g = ((ucontext_t *)ucv)->uc_mcontext.gregs;
+    mmio_ctx_t c;
+    int ok;
+
+    c.Rax = (uint64_t)g[MMIO_GREG_RAX]; c.Rcx = (uint64_t)g[MMIO_GREG_RCX];
+    c.Rdx = (uint64_t)g[MMIO_GREG_RDX]; c.Rbx = (uint64_t)g[MMIO_GREG_RBX];
+    c.Rsp = (uint64_t)g[MMIO_GREG_RSP]; c.Rbp = (uint64_t)g[MMIO_GREG_RBP];
+    c.Rsi = (uint64_t)g[MMIO_GREG_RSI]; c.Rdi = (uint64_t)g[MMIO_GREG_RDI];
+    c.R8  = (uint64_t)g[MMIO_GREG_R8];  c.R9  = (uint64_t)g[MMIO_GREG_R9];
+    c.R10 = (uint64_t)g[MMIO_GREG_R10]; c.R11 = (uint64_t)g[MMIO_GREG_R11];
+    c.R12 = (uint64_t)g[MMIO_GREG_R12]; c.R13 = (uint64_t)g[MMIO_GREG_R13];
+    c.R14 = (uint64_t)g[MMIO_GREG_R14]; c.R15 = (uint64_t)g[MMIO_GREG_R15];
+    c.Rip = (uint64_t)g[MMIO_GREG_RIP];
+    c.EFlags = (uint32_t)g[MMIO_GREG_EFL];
+
+    ok = mmio_emulate(&c, off, dev, rd, wr);
+    if (!ok)
+        return 0;
+
+    g[MMIO_GREG_RAX] = (greg_t)c.Rax; g[MMIO_GREG_RCX] = (greg_t)c.Rcx;
+    g[MMIO_GREG_RDX] = (greg_t)c.Rdx; g[MMIO_GREG_RBX] = (greg_t)c.Rbx;
+    g[MMIO_GREG_RSP] = (greg_t)c.Rsp; g[MMIO_GREG_RBP] = (greg_t)c.Rbp;
+    g[MMIO_GREG_RSI] = (greg_t)c.Rsi; g[MMIO_GREG_RDI] = (greg_t)c.Rdi;
+    g[MMIO_GREG_R8]  = (greg_t)c.R8;  g[MMIO_GREG_R9]  = (greg_t)c.R9;
+    g[MMIO_GREG_R10] = (greg_t)c.R10; g[MMIO_GREG_R11] = (greg_t)c.R11;
+    g[MMIO_GREG_R12] = (greg_t)c.R12; g[MMIO_GREG_R13] = (greg_t)c.R13;
+    g[MMIO_GREG_R14] = (greg_t)c.R14; g[MMIO_GREG_R15] = (greg_t)c.R15;
+    g[MMIO_GREG_RIP] = (greg_t)c.Rip;
+    /* Only the arithmetic flags the decoder sets; TF, IF, DF etc. stay. */
+    g[MMIO_GREG_EFL] = (greg_t)(((uint64_t)g[MMIO_GREG_EFL] & ~0x08C1ull)
+                                | (c.EFlags & 0x08C1u));
+    return 1;
+}
+
+/* The instruction pointer of a handler's ucontext, for a decode-fail line. */
+static inline const uint8_t *mmio_ucontext_ip(void *ucv)
+{
+    return (const uint8_t *)(uintptr_t)
+        ((ucontext_t *)ucv)->uc_mcontext.gregs[MMIO_GREG_RIP];
+}
+#endif /* MMIO_DECODE_X64_POSIX */
+
+#endif /* MMIO_DECODE_X64 */
 #endif /* MMIO_DECODE_H */

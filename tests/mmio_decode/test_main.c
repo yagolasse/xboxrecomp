@@ -3,8 +3,9 @@
  * XDK's device code emits, and refuse what it does not understand.
  *
  * This is testable without a device or a fault because the decoder only ever
- * reads instruction bytes at ctx->Rip and edits a CONTEXT. Point Rip at a
- * buffer of hand-encoded instructions and the whole thing is a pure function.
+ * reads instruction bytes at ctx->Rip and edits a CONTEXT (on Linux x86-64,
+ * the CONTEXT-shaped mmio_ctx_t). Point Rip at a buffer of hand-encoded
+ * instructions and the whole thing is a pure function.
  *
  * The cases that matter are the ones where being wrong is silent: an
  * instruction length that leaves Rip mid-instruction, a 32-bit read that does
@@ -15,9 +16,15 @@
 #include <stdio.h>
 #include <string.h>
 #include <stdint.h>
+#if defined(_WIN32)
 #include <windows.h>
+#endif
 
 #include "mmio_decode.h"
+
+#if !defined(MMIO_DECODE_X64)
+int main(void) { printf("mmio_decode: not an x86-64 Win32/Linux host, skipped\n"); return 77; }
+#else
 
 static int failures;
 #define CHECK(name, cond) \
@@ -47,15 +54,15 @@ static void t_write(void *d, uint32_t off, uint64_t v, int size)
 
 /* Run one instruction. Returns what mmio_emulate returned; `code` is the
  * encoding, and Rip is expected to land exactly past it. */
-static int run(const uint8_t *code, size_t len, CONTEXT *ctx)
+static int run(const uint8_t *code, size_t len, mmio_ctx_t *ctx)
 {
     int r;
     memset(&dev, 0, sizeof dev);
     dev.next_read = 0;
-    ctx->Rip = (DWORD64)(uintptr_t)code;
+    ctx->Rip = (uint64_t)(uintptr_t)code;
     r = mmio_emulate(ctx, 0x54, NULL, t_read, t_write);
     if (r) {
-        uint64_t advanced = ctx->Rip - (DWORD64)(uintptr_t)code;
+        uint64_t advanced = ctx->Rip - (uint64_t)(uintptr_t)code;
         if (advanced != len) {
             printf("FAIL: Rip advanced %llu, instruction is %llu bytes\n",
                    (unsigned long long)advanced, (unsigned long long)len);
@@ -66,17 +73,17 @@ static int run(const uint8_t *code, size_t len, CONTEXT *ctx)
 }
 
 /* run() with the device answering `next_read` to the read. */
-static int run_rd(const uint8_t *code, size_t len, CONTEXT *ctx,
+static int run_rd(const uint8_t *code, size_t len, mmio_ctx_t *ctx,
                   uint64_t next_read)
 {
     int r;
     memset(&dev, 0, sizeof dev);
     dev.next_read = next_read;
-    ctx->Rip = (DWORD64)(uintptr_t)code;
+    ctx->Rip = (uint64_t)(uintptr_t)code;
     r = mmio_emulate(ctx, 0x54, NULL, t_read, t_write);
-    if (r && ctx->Rip - (DWORD64)(uintptr_t)code != len) {
+    if (r && ctx->Rip - (uint64_t)(uintptr_t)code != len) {
         printf("FAIL: Rip advanced %llu, instruction is %llu bytes\n",
-               (unsigned long long)(ctx->Rip - (DWORD64)(uintptr_t)code),
+               (unsigned long long)(ctx->Rip - (uint64_t)(uintptr_t)code),
                (unsigned long long)len);
         failures++;
     }
@@ -85,7 +92,7 @@ static int run_rd(const uint8_t *code, size_t len, CONTEXT *ctx,
 
 int main(void)
 {
-    CONTEXT ctx;
+    mmio_ctx_t ctx;
     printf("mmio_decode: running\n");
     memset(&ctx, 0, sizeof ctx);
 
@@ -108,7 +115,7 @@ int main(void)
     { const uint8_t c[] = { 0x8B, 0x08 };
       ctx.Rcx = 0xFFFFFFFFFFFFFFFFULL;
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       dev.next_read = 0x12345678;
       CHECK("mov r,r/m handled", mmio_emulate(&ctx, 0x54, NULL, t_read, t_write));
       CHECK_U64("32-bit read clears high half", ctx.Rcx, 0x12345678ULL); }
@@ -121,7 +128,7 @@ int main(void)
     /* movzx eax, byte [rax] -- 0F B6 00 */
     { const uint8_t c[] = { 0x0F, 0xB6, 0x00 };
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rax = 0xFFFFFFFFFFFFFFFFULL;
       dev.next_read = 0x00000091;
       CHECK("movzx r32,r/m8 handled",
@@ -132,14 +139,14 @@ int main(void)
      * spins on jz/jnz off this. */
     { const uint8_t c[] = { 0x85, 0x08 };
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rcx = 0x00000001; ctx.EFlags = 0;
       dev.next_read = 0x00000001;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK("test bit set -> ZF clear", (ctx.EFlags & 0x40) == 0);
 
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       dev.next_read = 0x00000002;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK("test bit clear -> ZF set", (ctx.EFlags & 0x40) != 0); }
@@ -147,14 +154,14 @@ int main(void)
     /* cmp [rax], ecx -- 39 08. Equal sets ZF; below sets CF. */
     { const uint8_t c[] = { 0x39, 0x08 };
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rcx = 0x10; dev.next_read = 0x10; ctx.EFlags = 0;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK("cmp equal -> ZF", (ctx.EFlags & 0x40) != 0);
       CHECK("cmp equal -> no CF", (ctx.EFlags & 0x01) == 0);
 
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rcx = 0x20; dev.next_read = 0x10;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK("cmp below -> CF", (ctx.EFlags & 0x01) != 0); }
@@ -164,7 +171,7 @@ int main(void)
      * already had. */
     { const uint8_t c[] = { 0x09, 0x08 };
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rcx = 0x0F; dev.next_read = 0xF0;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK_U64("or merges existing bits", dev.val, 0xFF);
@@ -172,7 +179,7 @@ int main(void)
 
     { const uint8_t c[] = { 0x21, 0x08 };
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       ctx.Rcx = 0x0F; dev.next_read = 0xFF;
       mmio_emulate(&ctx, 0x54, NULL, t_read, t_write);
       CHECK_U64("and masks existing bits", dev.val, 0x0F); }
@@ -337,21 +344,65 @@ int main(void)
     { const uint8_t adc[] = { 0x83, 0x10, 0x01 };
       const uint8_t sbb[] = { 0x19, 0x08 };
       const uint8_t neg[] = { 0xF7, 0x18 };
-      ctx.Rip = (DWORD64)(uintptr_t)adc;
+      ctx.Rip = (uint64_t)(uintptr_t)adc;
       CHECK("adc refused", mmio_emulate(&ctx, 0x54, NULL, t_read, t_write) == 0);
-      ctx.Rip = (DWORD64)(uintptr_t)sbb;
+      ctx.Rip = (uint64_t)(uintptr_t)sbb;
       CHECK("sbb refused", mmio_emulate(&ctx, 0x54, NULL, t_read, t_write) == 0);
-      ctx.Rip = (DWORD64)(uintptr_t)neg;
+      ctx.Rip = (uint64_t)(uintptr_t)neg;
       CHECK("neg refused", mmio_emulate(&ctx, 0x54, NULL, t_read, t_write) == 0); }
 
     /* And the one that must fail. An unknown opcode reported as handled steps
      * over an instruction nobody decoded. */
     { const uint8_t c[] = { 0xF7, 0x10 };                     /* not dword [rax] */
       memset(&dev, 0, sizeof dev);
-      ctx.Rip = (DWORD64)(uintptr_t)c;
+      ctx.Rip = (uint64_t)(uintptr_t)c;
       CHECK("unknown opcode refused",
             mmio_emulate(&ctx, 0x54, NULL, t_read, t_write) == 0);
-      CHECK("refused leaves Rip alone", ctx.Rip == (DWORD64)(uintptr_t)c); }
+      CHECK("refused leaves Rip alone", ctx.Rip == (uint64_t)(uintptr_t)c); }
+
+#if defined(MMIO_DECODE_X64_POSIX)
+    /* The POSIX bridge: registers in and out of a signal handler's gregs[],
+     * which keep the kernel's order, not CONTEXT's. A slot mix-up there would
+     * put the device's value in the wrong register with every test above
+     * still passing. */
+    { const uint8_t ld[] = { 0x45, 0x8B, 0x4D, 0x10 };        /* mov r9d, [r13+0x10] */
+      const uint8_t cp[] = { 0x83, 0x3B, 0x05 };              /* cmp dword [rbx], 5 */
+      const uint8_t bad[] = { 0xF7, 0x10 };
+      ucontext_t uc;
+      greg_t *g = uc.uc_mcontext.gregs;
+      int i;
+
+      memset(&uc, 0, sizeof uc);
+      for (i = 0; i < NGREG; i++)
+          g[i] = (greg_t)(0x1111111100000000ull | (unsigned)i);
+      g[MMIO_GREG_RIP] = (greg_t)(uintptr_t)ld;
+      g[MMIO_GREG_EFL] = 0x302;                     /* IF | TF | bit 1 */
+      memset(&dev, 0, sizeof dev);
+      dev.next_read = 0xCAFEF00D;
+      CHECK("ucontext load serviced",
+            mmio_emulate_ucontext(&uc, 0x54, NULL, t_read, t_write) == 1);
+      CHECK_U64("ucontext load -> r9 slot", g[MMIO_GREG_R9], 0xCAFEF00D);
+      CHECK_U64("ucontext rip advanced", g[MMIO_GREG_RIP],
+                (uintptr_t)ld + sizeof ld);
+      CHECK_U64("ucontext rax untouched", g[MMIO_GREG_RAX],
+                0x1111111100000000ull | MMIO_GREG_RAX);
+      CHECK_U64("ucontext r8 untouched", g[MMIO_GREG_R8],
+                0x1111111100000000ull | MMIO_GREG_R8);
+
+      g[MMIO_GREG_RIP] = (greg_t)(uintptr_t)cp;
+      dev.next_read = 5;
+      CHECK("ucontext cmp serviced",
+            mmio_emulate_ucontext(&uc, 0x54, NULL, t_read, t_write) == 1);
+      CHECK("ucontext cmp equal -> ZF", (g[MMIO_GREG_EFL] & 0x40) != 0);
+      CHECK_U64("ucontext keeps TF/IF", g[MMIO_GREG_EFL] & 0x300, 0x300);
+
+      g[MMIO_GREG_RIP] = (greg_t)(uintptr_t)bad;
+      CHECK("ucontext unknown opcode refused",
+            mmio_emulate_ucontext(&uc, 0x54, NULL, t_read, t_write) == 0);
+      CHECK_U64("ucontext refused leaves rip", g[MMIO_GREG_RIP],
+                (uintptr_t)bad);
+      CHECK("ucontext ip accessor", mmio_ucontext_ip(&uc) == bad); }
+#endif
 
     if (failures == 0) {
         printf("mmio_decode: ALL PASS\n");
@@ -360,3 +411,4 @@ int main(void)
     printf("mmio_decode: %d FAILURE(S)\n", failures);
     return 1;
 }
+#endif /* MMIO_DECODE_X64 */

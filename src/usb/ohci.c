@@ -21,12 +21,15 @@
 
 /* Where the registers can be trapped. They are answered by faulting on the
  * aperture and decoding the instruction that touched it: the x86-64 decoder
- * under a Win32 VEH, or the A64 decoder under a POSIX SIGBUS/SIGSEGV
- * handler. A host with neither leaves the model off (see xbox_OhciInit). */
+ * under a Win32 VEH or a Linux SIGSEGV handler, or the A64 decoder under a
+ * POSIX SIGBUS/SIGSEGV handler. A host with neither leaves the model off (see
+ * xbox_OhciInit). */
 #if defined(_WIN32)
 #  define OHCI_TRAP_WIN32 1
 #elif defined(__aarch64__)
 #  define OHCI_TRAP_POSIX_A64 1
+#elif defined(MMIO_DECODE_X64_POSIX)
+#  define OHCI_TRAP_POSIX_X64 1
 #endif
 
 /* The runtime maps guest memory at a fixed host offset. */
@@ -1288,7 +1291,8 @@ void xbox_OhciInit(void)
         if ((unsigned)s_npads > s_ndp)
             s_ndp = (unsigned)s_npads;      /* a port for every pad */
     }
-#if !defined(OHCI_TRAP_WIN32) && !defined(OHCI_TRAP_POSIX_A64)
+#if !defined(OHCI_TRAP_WIN32) && !defined(OHCI_TRAP_POSIX_A64) \
+    && !defined(OHCI_TRAP_POSIX_X64)
     /* No decoder for this host's instructions, so a trapped access could not
      * be answered. Leave the aperture as plain memory -- the title then sees
      * no controller, exactly as with RECOMP_USB unset -- and say so. */
@@ -1364,7 +1368,8 @@ int xbox_OhciOwnsAddress(uint32_t xbox_va)
     return hc_for(xbox_va) != NULL;
 }
 
-#if defined(OHCI_TRAP_POSIX_A64) || defined(OHCI_TRAP_WIN32)
+#if defined(OHCI_TRAP_POSIX_A64) || defined(OHCI_TRAP_WIN32) \
+    || defined(OHCI_TRAP_POSIX_X64)
 /* Both decoders hand over 8-byte accesses whole (ldr/str x or a d register
  * on A64, a REX.W mov on x86-64); the registers are 32-bit, so an 8-byte
  * access is two of them. */
@@ -1402,6 +1407,24 @@ int xbox_OhciHandleMmio(void *ctx, uint32_t xbox_va)
         fprintf(stderr, "  [OHCI%d] undecoded access at +0x%03X: insn %08X\n",
                 hc->index, xbox_va - hc->base,
                 *(const uint32_t *)(uintptr_t)A64_CTX_PC(uc));
+        fflush(stderr);
+    }
+    return ok;
+#elif defined(OHCI_TRAP_POSIX_X64)
+    OhciController *hc = hc_for(xbox_va);
+    int ok;
+
+    if (!hc)
+        return 0;
+    ok = mmio_emulate_ucontext(ctx, xbox_va - hc->base, hc,
+                               ohci_read_split, ohci_write_split);
+    /* stdio in a signal handler, deliberately: see apu_mmio_hook.c. */
+    if (!ok && hc->decode_fail++ < 20) {
+        const uint8_t *ip = mmio_ucontext_ip(ctx);
+        fprintf(stderr, "  [OHCI%d] undecoded access at +0x%03X: "
+                        "%02X %02X %02X %02X %02X %02X\n",
+                hc->index, xbox_va - hc->base,
+                ip[0], ip[1], ip[2], ip[3], ip[4], ip[5]);
         fflush(stderr);
     }
     return ok;
