@@ -432,6 +432,20 @@ typedef struct {
 } WaveOutState;
 
 static WaveOutState g_waveout = { 0 };
+/* mcpx_apu_set_volume's value; < 0 = never called (RECOMP_APU_VOLUME). */
+static volatile float g_volume = -1.0f;
+
+void mcpx_apu_set_volume(float vol)
+{
+    vol = vol < 0.0f ? 0.0f : vol > 1.0f ? 1.0f : vol;
+    g_volume = vol;
+    xa2_set_volume(vol);    /* also kept for xa2_init */
+    if (!xa2_is_active() && g_waveout.initialized) {
+        DWORD v = (DWORD)(vol * 0xFFFF);
+        waveOutSetVolume(g_waveout.hwo, v | (v << 16));
+    }
+    fprintf(stderr, "[APU] volume %.2f\n", vol);
+}
 
 void mcpx_apu_monitor_init(MCPXAPUState *d, Error **errp)
 {
@@ -493,10 +507,13 @@ void mcpx_apu_monitor_init(MCPXAPUState *d, Error **errp)
     }
 
     {
-        /* RECOMP_APU_VOLUME, as for XAudio2 (both channels, 16 bits each) */
+        /* RECOMP_APU_VOLUME, as for XAudio2 (both channels, 16 bits each);
+         * mcpx_apu_set_volume before this wins */
         const char *e = getenv("RECOMP_APU_VOLUME");
-        if (e && *e) {
-            double vol = atof(e);
+        double vol = g_volume;
+        if (vol >= 0 || (e && *e)) {
+            if (vol < 0)
+                vol = atof(e);
             DWORD v = (DWORD)((vol < 0 ? 0 : vol > 1 ? 1 : vol) * 0xFFFF);
             waveOutSetVolume(g_waveout.hwo, v | (v << 16));
         }

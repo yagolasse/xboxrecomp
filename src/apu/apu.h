@@ -39,6 +39,11 @@ int apu_env_on(const char *name);
  * (before init it only sets the flag). */
 void mcpx_apu_set_host_paused(int on);
 
+/* Output volume 0..1 (RECOMP_APU_VOLUME at start), from any thread, any
+ * time: the samples the device plays next use it; set before the device is
+ * up, it replaces RECOMP_APU_VOLUME there. 0 = silent, the APU still runs. */
+void mcpx_apu_set_volume(float vol);
+
 /* Play a 440Hz test tone through the APU pipeline to verify audio output.
  * Directly programs a voice without going through DirectSound. */
 void mcpx_apu_play_test_tone(MCPXAPUState *d);

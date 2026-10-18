@@ -66,6 +66,8 @@ static unsigned  g_xa2_underruns;
 static int       g_xa2_dry;
 static ULONGLONG g_xa2_underrun_logged;
 static int                     g_xa2_initialized = 0;
+/* xa2_set_volume's value; < 0 = never called (RECOMP_APU_VOLUME, else 1). */
+static volatile float          g_xa2_volume = -1.0f;
 static int                     g_xa2_frames_written = 0;
 
 int xa2_init(void)
@@ -117,16 +119,21 @@ int xa2_init(void)
     }
 
     /* RECOMP_APU_VOLUME=<0..1>: master volume (0 = silent, e.g. for
-     * unattended test runs; the pipeline and its stats still run). */
+     * unattended test runs; the pipeline and its stats still run). A
+     * xa2_set_volume made before init wins. */
     {
         const char *e = getenv("RECOMP_APU_VOLUME");
-        if (e && *e) {
-            float vol = (float)atof(e);
+        float vol = g_xa2_volume;
+        if (vol >= 0.0f || (e && *e)) {
+            int from_env = vol < 0.0f;
+            if (from_env)
+                vol = (float)atof(e);
             if (vol < 0.0f) vol = 0.0f;
             if (vol > 1.0f) vol = 1.0f;
             IXAudio2Voice_SetVolume((IXAudio2Voice *)g_xa2_master, vol,
                                     XAUDIO2_COMMIT_NOW);
-            fprintf(stderr, "[XA2] master volume %.2f (RECOMP_APU_VOLUME)\n", vol);
+            fprintf(stderr, "[XA2] master volume %.2f%s\n", vol,
+                    from_env ? " (RECOMP_APU_VOLUME)" : "");
         }
     }
 
@@ -277,6 +284,16 @@ void xa2_set_paused(int on)
         IXAudio2SourceVoice_Stop(g_xa2_source, 0, XAUDIO2_COMMIT_NOW);
     else
         IXAudio2SourceVoice_Start(g_xa2_source, 0, XAUDIO2_COMMIT_NOW);
+}
+
+/* XAudio2's voice calls may come from any thread (not from its callbacks,
+ * which this file doesn't use). */
+void xa2_set_volume(float vol)
+{
+    g_xa2_volume = vol;
+    if (g_xa2_initialized && g_xa2_master)
+        IXAudio2Voice_SetVolume((IXAudio2Voice *)g_xa2_master, vol,
+                                XAUDIO2_COMMIT_NOW);
 }
 
 unsigned xa2_underruns(void)

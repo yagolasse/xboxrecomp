@@ -48,6 +48,14 @@ static unsigned  g_underruns;
 static uint64_t  g_samples_queued;  /* samples handed to the queue, ever */
 static int       g_dry;
 static int64_t   g_underrun_logged_ms;
+/* Volume as SDL's mix volume 0..SDL_MIX_MAXVOLUME (max = samples as is). */
+static SDL_atomic_t g_mix_volume = { SDL_MIX_MAXVOLUME };
+static SDL_atomic_t g_volume_set;   /* xa2_set_volume came before init */
+
+static int mix_volume(double vol)
+{
+    return (int)((vol < 0 ? 0 : vol > 1 ? 1 : vol) * SDL_MIX_MAXVOLUME + 0.5);
+}
 
 static int env_int(const char *name, int def, int lo, int hi)
 {
@@ -78,6 +86,10 @@ int xa2_init(void)
                             SDLA_BUF_SAMPLES_MIN, SDLA_BUF_SAMPLES_MAX);
     g_num_bufs = env_int("RECOMP_AUDIO_BUF_COUNT", SDLA_NUM_BUFS_DEFAULT,
                          SDLA_NUM_BUFS_MIN, SDLA_NUM_BUFS_MAX);
+    /* RECOMP_APU_VOLUME, as for XAudio2 */
+    e = getenv("RECOMP_APU_VOLUME");
+    if (e && *e && !SDL_AtomicGet(&g_volume_set))
+        SDL_AtomicSet(&g_mix_volume, mix_volume(atof(e)));
 
     /* SDL installs SIGINT/SIGTERM handlers that only post SDL_QUIT, which
      * nothing reads in a headless run; keep the default handlers so Ctrl-C
@@ -166,7 +178,18 @@ int xa2_is_active(void)
  * unbounded and pacing by queue depth holds it at the marks. */
 int xa2_submit_samples(const int16_t *samples, int num_samples)
 {
+    static int16_t scaled[SDLA_BUF_SAMPLES_MAX * SDLA_CHANNELS];
+    int vol = SDL_AtomicGet(&g_mix_volume);
+
     if (!g_initialized || !g_dev || num_samples <= 0) return 0;
+    /* Below full volume, queue a scaled copy (the APU frame thread is the
+     * only caller, so one static buffer does). */
+    if (vol < SDL_MIX_MAXVOLUME && num_samples <= SDLA_BUF_SAMPLES_MAX) {
+        Uint32 n = (Uint32)num_samples * SDLA_CHANNELS * sizeof(int16_t);
+        memset(scaled, 0, n);
+        SDL_MixAudioFormat((Uint8 *)scaled, (const Uint8 *)samples, AUDIO_S16SYS, n, vol);
+        samples = scaled;
+    }
     if (SDL_QueueAudio(g_dev, samples,
                        (Uint32)num_samples * SDLA_CHANNELS * sizeof(int16_t)) != 0) {
         fprintf(stderr, "[SDL2] SDL_QueueAudio failed: %s\n", SDL_GetError());
@@ -219,6 +242,12 @@ int xa2_queued_samples(void)
 void xa2_expect_drain(void)
 {
     g_dry = 1;
+}
+
+void xa2_set_volume(float vol)
+{
+    SDL_AtomicSet(&g_mix_volume, mix_volume(vol));
+    SDL_AtomicSet(&g_volume_set, 1);
 }
 
 void xa2_set_paused(int on)
