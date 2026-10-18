@@ -1008,6 +1008,14 @@ HANDLE CreateWaitableTimerW(LPSECURITY_ATTRIBUTES sa, BOOL manualReset, LPCWSTR 
     return (HANDLE)o;
 }
 
+/* Timed waits here are already nanosecond pthread waits, so HIGH_RESOLUTION
+ * adds nothing; only MANUAL_RESET changes behaviour. */
+HANDLE CreateWaitableTimerExW(LPSECURITY_ATTRIBUTES sa, LPCWSTR name, DWORD flags, DWORD access)
+{
+    (void)access;
+    return CreateWaitableTimerW(sa, (flags & CREATE_WAITABLE_TIMER_MANUAL_RESET) != 0, name);
+}
+
 BOOL SetWaitableTimer(HANDLE h, const LARGE_INTEGER *dueTime, LONG period,
                       PTIMERAPCROUTINE completion, PVOID arg, BOOL resume)
 {

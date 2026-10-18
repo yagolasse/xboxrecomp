@@ -191,6 +191,10 @@ BOOL   TrySubmitThreadpoolCallback(PTP_SIMPLE_CALLBACK callback,
 /* ---- Waitable timers --------------------------------------------------- */
 typedef VOID (*PTIMERAPCROUTINE)(PVOID arg, DWORD lowValue, DWORD highValue);
 HANDLE CreateWaitableTimerW(LPSECURITY_ATTRIBUTES sa, BOOL manualReset, LPCWSTR name);
+#define CREATE_WAITABLE_TIMER_MANUAL_RESET    0x00000001
+#define CREATE_WAITABLE_TIMER_HIGH_RESOLUTION 0x00000002
+#define TIMER_ALL_ACCESS                      0x001F0003
+HANDLE CreateWaitableTimerExW(LPSECURITY_ATTRIBUTES sa, LPCWSTR name, DWORD flags, DWORD access);
 BOOL   SetWaitableTimer(HANDLE h, const LARGE_INTEGER *dueTime, LONG period,
                         PTIMERAPCROUTINE completion, PVOID arg, BOOL resume);
 BOOL   CancelWaitableTimer(HANDLE h);

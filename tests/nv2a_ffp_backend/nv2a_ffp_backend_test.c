@@ -40,6 +40,9 @@ void xbox_FramebufferWindowStart(void) {}
 void xbox_FramebufferWindowFrameStats(uint32_t draws) { (void)draws; }
 void xbox_FramebufferWindowPresent(uint32_t va, uint32_t pitch) { (void)va; (void)pitch; }
 void xbox_Nv2aFrameCounterFlip(void) {}
+void nv2a_pb_capture_method(uint32_t subch, uint32_t method, uint32_t param)
+{ (void)subch; (void)method; (void)param; }
+void nv2a_pb_capture_flip(void) {}
 
 static volatile uint32_t s_pgraph_400b10;
 volatile uint32_t *xbox_Nv2aRegPtr(uint32_t offset)

@@ -41,6 +41,8 @@ unsigned xa2_underruns(void)   { return 0; }
 int  xa2_queued_samples(void)  { return 0; }
 uint64_t xa2_samples_played(void) { return 0; }
 void xa2_expect_drain(void)    {}
+void xa2_set_paused(int on)    { (void)on; }
+void xa2_set_volume(float vol) { (void)vol; }
 int  xa2_submit_samples(const int16_t *s, int n) { (void)s; (void)n; return 1; }
 
 #define FAKE_RAM   (256u << 10)
