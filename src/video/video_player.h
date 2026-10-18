@@ -91,6 +91,13 @@ void *xbox_FramebufferWindowSdl(void);
  * set it before or after the window opens. */
 typedef int (*xbox_fb_event_hook_fn)(const void *sdl_event);
 void xbox_FramebufferWindowSetEventHook(xbox_fb_event_hook_fn hook);
+/* SDL window only: borderless fullscreen on (1) or off (0), from any thread
+ * (an overlay menu). SDL wants window calls on the window's own thread, so
+ * this posts a request the window loop carries out; nothing happens until
+ * the window is up (headless: never). IsFullscreen is the window's state
+ * now, also after Alt+Enter (0 headless). */
+void xbox_FramebufferWindowSetFullscreen(int on);
+int  xbox_FramebufferWindowIsFullscreen(void);
 void xbox_FramebufferWindowGpuPresent(int on);
 int  xbox_FramebufferWindowClientSize(uint32_t *width, uint32_t *height);
 int  xbox_FramebufferDumpBmp(const char *path);

@@ -46,7 +46,10 @@
  * stream lock would hang the exit flush).
  *
  * Alt+Enter toggles borderless fullscreen (the game does not see it as
- * Start); RECOMP_FB_FULLSCREEN=1 starts fullscreen.
+ * Start); RECOMP_FB_FULLSCREEN=1 starts fullscreen. A title's overlay can
+ * switch it from any thread (xbox_FramebufferWindowSetFullscreen posts the
+ * request to this loop) and read the current state
+ * (xbox_FramebufferWindowIsFullscreen, Alt+Enter included).
  *
  * Input events go to the title's event hook first (an overlay menu), then
  * to the mouse+keyboard pad (mkb_input.c, RECOMP_MKB: captured mouse
@@ -116,6 +119,8 @@ static uint64_t        s_ready_seq;          /* frames published */
 static SDL_SpinLock    s_lock;
 static SDL_atomic_t    s_running;            /* window up: flips copy */
 static Uint32          s_frame_event;        /* wakes the main loop */
+static Uint32          s_fullscreen_event;   /* xbox_FramebufferWindowSetFullscreen */
+static SDL_atomic_t    s_fullscreen;         /* borderless fullscreen now */
 static SDL_atomic_t    s_wake_pending;
 static SDL_atomic_t    s_in_present;         /* executor inside Present */
 static volatile uint32_t s_fb_va, s_fb_pitch; /* AvSetDisplayMode surface */
@@ -260,6 +265,24 @@ void xbox_FramebufferWindowSetEventHook(xbox_fb_event_hook_fn hook)
     s_event_hook = hook;
 }
 
+void xbox_FramebufferWindowSetFullscreen(int on)
+{
+    SDL_Event ev;
+
+    if (!SDL_AtomicGet(&s_running) || !s_fullscreen_event)
+        return;
+    memset(&ev, 0, sizeof ev);
+    ev.type = s_fullscreen_event;
+    ev.user.code = on ? 1 : 0;
+    if (SDL_PushEvent(&ev) <= 0)
+        fprintf(stderr, "  [FBWIN] fullscreen request dropped (%s)\n", SDL_GetError());
+}
+
+int xbox_FramebufferWindowIsFullscreen(void)
+{
+    return SDL_AtomicGet(&s_fullscreen);
+}
+
 /* Nothing to stop: in external mode the window draws nothing of its own. */
 void xbox_FramebufferWindowGpuPresent(int on) { (void)on; }
 
@@ -344,6 +367,9 @@ static void set_fullscreen(int on)
 {
     SDL_SetWindowFullscreen(s_win, on ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
     update_client_size();
+    on = (SDL_GetWindowFlags(s_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
+    SDL_AtomicSet(&s_fullscreen, on);
+    fprintf(stderr, "  [FBWIN] fullscreen %s\n", on ? "on" : "off");
 }
 
 #if defined(_WIN32)
@@ -418,7 +444,7 @@ static int window_open(void)
     s_ren = s_win && !s_external
           ? SDL_CreateRenderer(s_win, -1, vsync ? SDL_RENDERER_PRESENTVSYNC : 0)
           : NULL;
-    s_guest_done_event = s_win && (s_ren || s_external) ? SDL_RegisterEvents(2)
+    s_guest_done_event = s_win && (s_ren || s_external) ? SDL_RegisterEvents(3)
                                                         : (Uint32)-1;
     if (s_guest_done_event == (Uint32)-1) {
         fprintf(stderr, "  [FBWIN] SDL window/renderer failed (%s); running headless\n",
@@ -433,6 +459,7 @@ static int window_open(void)
         return 0;
     }
     s_frame_event = s_guest_done_event + 1;
+    s_fullscreen_event = s_guest_done_event + 2;
     if (s_ren)
         SDL_RenderSetLogicalSize(s_ren, (int)FB_W, (int)FB_H);
 
@@ -481,9 +508,8 @@ static int window_loop(void)
     SDL_Texture *tex = NULL;
     uint32_t tex_bpp = 0;
     uint64_t shown_seq = 0, t_title = 0;
-    int flips_title = 0, quit = 0, guest_done = 0, dirty = 1, fullscreen;
+    int flips_title = 0, quit = 0, guest_done = 0, dirty = 1;
 
-    fullscreen = (SDL_GetWindowFlags(s_win) & SDL_WINDOW_FULLSCREEN_DESKTOP) != 0;
     while (!quit && !guest_done) {
         SDL_Event ev;
         uint64_t seq, now;
@@ -500,10 +526,15 @@ static int window_loop(void)
                 if (ev.type == SDL_KEYDOWN && (ev.key.keysym.mod & KMOD_ALT)
                         && (ev.key.keysym.sym == SDLK_RETURN
                             || ev.key.keysym.sym == SDLK_KP_ENTER)) {
-                    if (!ev.key.repeat) {
-                        fullscreen = !fullscreen;
-                        set_fullscreen(fullscreen);
-                    }
+                    /* From the window's flags: the overlay may have switched it. */
+                    if (!ev.key.repeat)
+                        set_fullscreen(!(SDL_GetWindowFlags(s_win)
+                                         & SDL_WINDOW_FULLSCREEN_DESKTOP));
+                    continue;
+                }
+                /* xbox_FramebufferWindowSetFullscreen, from another thread. */
+                if (ev.type == s_fullscreen_event) {
+                    set_fullscreen(ev.user.code);
                     continue;
                 }
                 /* Keys for the pad stand-in, and the window events that
