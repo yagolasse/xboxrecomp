@@ -1,0 +1,13 @@
+cmake_minimum_required(VERSION 3.20)
+project(kernel_path_case_posix C)
+if(WIN32)
+    message(FATAL_ERROR "This fixture exercises the POSIX path backend's case lookup")
+endif()
+set(CMAKE_C_STANDARD 11)
+# Only the path translation and the platform layer: no game or guest memory.
+add_subdirectory(../../src/platform platform)
+add_executable(kernel_path_case_posix_test test_main.c ../../src/kernel/kernel_path.c)
+target_include_directories(kernel_path_case_posix_test PRIVATE ../../src/kernel)
+target_link_libraries(kernel_path_case_posix_test PRIVATE platform)
+enable_testing()
+add_test(NAME kernel_path_case_posix COMMAND kernel_path_case_posix_test)

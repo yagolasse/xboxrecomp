@@ -645,6 +645,8 @@ translate:
 #include <sys/types.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <dirent.h>
+#include <strings.h>
 
 static char s_game_dir[MAX_PATH];
 static char s_save_dir[MAX_PATH];
@@ -791,6 +793,61 @@ void xbox_path_init(const char* game_dir, const char* save_dir)
              s_game_dir, s_save_dir, s_user_dir);
 }
 
+/*
+ * Xbox file systems ignore case; titles open "d:\FRONT\MOVIES\MIDWAY.SFD"
+ * while an extracted disc may hold "front/movies/midway.sfd" (and a mix of
+ * both). Win32 needs nothing here. On POSIX, every component after the first
+ * `keep` bytes (the base directory, taken as given) that does not exist as
+ * spelled is replaced by the first directory entry that matches it ignoring
+ * case. The walk stops at the first component with no match at all: the rest
+ * is a file or directory the title is about to create, kept as spelled.
+ */
+static void resolve_case(char* path, size_t keep)
+{
+    char* comp = path + keep;
+    struct stat st;
+
+    while (*comp == '/')
+        comp++;
+    if (comp == path)
+        return;   /* relative base: never produced by the rules above */
+    while (*comp) {
+        char* end = strchr(comp, '/');
+        char  saved = end ? *end : '\0';
+        int   found = 0;
+
+        if (end) *end = '\0';
+        if (lstat(path, &st) == 0) {
+            found = 1;
+        } else if (errno == ENOENT) {
+            DIR* dir;
+            char sep = comp[-1];
+
+            comp[-1] = '\0';
+            dir = opendir(comp == path + 1 ? "/" : path);
+            comp[-1] = sep;
+            if (dir) {
+                struct dirent* de;
+                while ((de = readdir(dir)) != NULL) {
+                    if (strcasecmp(de->d_name, comp) == 0
+                        && strlen(de->d_name) == strlen(comp)) {
+                        memcpy(comp, de->d_name, strlen(comp));
+                        found = 1;
+                        break;
+                    }
+                }
+                closedir(dir);
+            }
+        }
+        if (end) *end = saved;
+        if (!found || !end)
+            return;
+        comp = end + 1;
+        while (*comp == '/')
+            comp++;
+    }
+}
+
 BOOL xbox_translate_path(const char* xbox_path, xbox_host_char* host_path_buf, DWORD buf_size)
 {
     const char* remainder = NULL;
@@ -842,6 +899,12 @@ BOOL xbox_translate_path(const char* xbox_path, xbox_host_char* host_path_buf, D
     return TRUE;
 
 translate:
+    /* As the Win32 backend: tools (the smoke test, the missing-file report's
+     * readers) key on this line, and the hook sees every translated path. */
+    if (g_xbox_path_hook)
+        g_xbox_path_hook(xbox_path);
+    fprintf(stderr, "  [PATH] %s\n", xbox_path);
+    fflush(stderr);
     {
         char remainder_posix[MAX_PATH];
         snprintf(remainder_posix, sizeof(remainder_posix), "%s", remainder);
@@ -867,6 +930,7 @@ translate:
             while (n > 1 && host_path_buf[n - 1] == '/')
                 host_path_buf[--n] = '\0';
         }
+        resolve_case(host_path_buf, strlen(base_dir));
 
         XBOX_TRACE(XBOX_LOG_PATH, "%s -> %s", xbox_path, host_path_buf);
         /* As the Win32 backend does: the bridge reads back the host path
