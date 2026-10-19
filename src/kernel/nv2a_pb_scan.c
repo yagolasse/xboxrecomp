@@ -67,7 +67,9 @@ static int pb_walk_enabled(void)
 
 /* Slot + 1 of each (subchannel, method) in s_seen. note() runs for every
  * pushbuffer word, so a linear search here was the executor's largest cost
- * (about 40% of its thread in X-Men Legends' levels). */
+ * (about 40% of its thread in X-Men Legends' levels). Even the table lookup
+ * was ~5% of the method thread on a Steam Deck, so it only runs when the
+ * inventory will be printed (RECOMP_PB_SCAN); executing alone skips it. */
 static uint16_t s_seen_slot[8][0x2000 / 4];
 
 static void note(uint32_t subch, uint32_t method)
@@ -281,7 +283,8 @@ static void pb_consume(const uint8_t *mem, uint32_t put, uint32_t *words)
         uint32_t m = s_pend_noninc ? s_pend_method : s_pend_method + s_pend_i * 4;
         uint32_t param = *(const uint32_t *)(mem + (0x80000000u | s_get));
 
-        note(s_pend_subch, m);
+        if (s_scan_enabled > 0)
+            note(s_pend_subch, m);
         /* Same walk, two consumers: the survey counts, the executor
          * acts. Keeping them on one decode means they can never
          * disagree about what the stream said. */
@@ -502,7 +505,8 @@ static uint32_t pb_walk_segment(uint32_t va, uint32_t end_va, int in_call,
 
             for (uint32_t i = 0; i < count && va < end_va; i++) {
                 uint32_t m = noninc ? method : method + i * 4;
-                note(subch, m);
+                if (s_scan_enabled > 0)
+                    note(subch, m);
                 if (s_exec_enabled)
                     nv2a_pb_exec_method(subch, m,
                                         *(const uint32_t *)(mem + va));
