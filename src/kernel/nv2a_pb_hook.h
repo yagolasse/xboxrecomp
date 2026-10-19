@@ -25,6 +25,13 @@ typedef void (*nv2a_pb_method_hook_fn)(uint32_t subch, uint32_t method,
 /* NULL restores the software executor. */
 void nv2a_pb_set_method_hook(nv2a_pb_method_hook_fn fn);
 
+/* Called on the hook's thread after each batch of methods: a walk of the
+ * pushbuffer up to PUT, or a replayed capture. A hook can then take its lock
+ * once per batch instead of once per method (a level sends millions of
+ * methods per second). Optional; NULL turns it off. */
+typedef void (*nv2a_pb_batch_end_fn)(void);
+void nv2a_pb_set_batch_end_hook(nv2a_pb_batch_end_fn fn);
+
 /* A hook that runs software methods (NV097 NO_OPERATION with a non-zero
  * parameter, which on hardware raise an interrupt for D3D's handler) reports
  * each parameter here; the runtime reproduces what D3D's handler would do

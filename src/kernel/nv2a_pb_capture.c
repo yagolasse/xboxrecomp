@@ -12,6 +12,7 @@
 
 /* The software executor and the ack-thread stop, both in the kernel lib. */
 extern void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param);
+extern void nv2a_pb_exec_batch_end(void);
 extern void nv2a_pb_exec_dump_surface(const char *path);
 void xbox_Nv2aAckStop(void);
 
@@ -375,6 +376,7 @@ int nv2a_pb_capture_replay(const char *path)
         nv2a_pb_exec_method(prelude[i].subch, prelude[i].method, prelude[i].param);
     for (i = 0; i < frame_n; i++)
         nv2a_pb_exec_method(frame[i].subch, frame[i].method, frame[i].param);
+    nv2a_pb_exec_batch_end();
 
     snprintf(bmp, sizeof bmp, "%s.replay.bmp", path);
     nv2a_pb_exec_dump_surface(bmp);

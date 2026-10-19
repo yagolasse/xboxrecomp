@@ -47,6 +47,7 @@ void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param)
         s_get_reg = s_title_get;
 }
 void nv2a_pb_exec_report(void) {}
+void nv2a_pb_exec_batch_end(void) {}
 void xbox_Nv2aAckBusyBits(void) {}
 
 void nv2a_pb_resync(uint32_t get_phys);

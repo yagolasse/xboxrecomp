@@ -44,6 +44,7 @@ static uint32_t s_tot_calls;
  * the executor writes to guest memory. */
 extern void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param);
 extern void nv2a_pb_exec_report(void);
+extern void nv2a_pb_exec_batch_end(void);
 static int s_exec_enabled = -1;
 static int s_scan_enabled = -1;
 
@@ -423,6 +424,7 @@ void nv2a_pb_scan(uint32_t put_phys)
         *get_reg = s_get;
         s_pub = s_get;
     }
+    nv2a_pb_exec_batch_end();
     s_tot_words += words;
     s_tot_unknown += unknown;
     s_tot_jumps += jumps;
@@ -530,6 +532,7 @@ void nv2a_pb_scan_segment(uint32_t start_va, uint32_t end_va)
         end_va = start_va + 0x400000u;
 
     words = pb_walk_segment(start_va, end_va, 0, &jumps, &unknown);
+    nv2a_pb_exec_batch_end();
 
     s_tot_words += words;
     s_tot_unknown += unknown;

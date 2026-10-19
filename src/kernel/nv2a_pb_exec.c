@@ -3538,6 +3538,20 @@ void nv2a_pb_set_method_hook(nv2a_pb_method_hook_fn fn)
     s_method_hook = fn;
 }
 
+static nv2a_pb_batch_end_fn s_batch_end_hook;
+
+void nv2a_pb_set_batch_end_hook(nv2a_pb_batch_end_fn fn)
+{
+    s_batch_end_hook = fn;
+}
+
+/* nv2a_pb_scan.c and the capture replay, after each batch of methods. */
+void nv2a_pb_exec_batch_end(void)
+{
+    if (s_method_hook && s_batch_end_hook)
+        s_batch_end_hook();
+}
+
 void nv2a_pb_exec_method(uint32_t subch, uint32_t method, uint32_t param)
 {
     nv2a_pb_capture_method(subch, method, param);
